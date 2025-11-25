@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Shuriken Table Pro
  * Description: Professional Elementor Form Manager. Save tables, manage columns, and display data with advanced privacy controls.
- * Version: 3.3.0
+ * Version: 3.4.0
  * Author: Shuriken Dev
  * Text Domain: shuriken-table
  */
@@ -14,18 +14,16 @@ class Shuriken_Table_Manager {
     const OPTION_KEY = 'shuriken_tables_db';
 
     public function __construct() {
-        // Core Hooks
         add_shortcode( 'shuriken_table', array( $this, 'render_frontend_table' ) );
         add_action( 'admin_menu', array( $this, 'register_admin_menu' ) );
         add_action( 'admin_post_shuriken_save_table', array( $this, 'handle_save_table' ) );
         add_action( 'admin_post_shuriken_delete_table', array( $this, 'handle_delete_table' ) );
         add_action( 'admin_post_shuriken_export_csv', array( $this, 'handle_csv_export' ) );
-        
-        // Elementor Integration
         add_action( 'elementor/widgets/register', array( $this, 'register_elementor_widget' ) );
-        
-        // NEW: Register Custom Category
         add_action( 'elementor/elements/categories_registered', array( $this, 'register_elementor_categories' ) );
+        
+        // Load JS once in footer
+        add_action( 'wp_footer', array( $this, 'print_global_scripts' ) );
     }
 
     public function register_elementor_widget( $widgets_manager ) {
@@ -36,21 +34,12 @@ class Shuriken_Table_Manager {
         }
     }
 
-    /**
-     * Create the "Shuriken Addons" Section in Elementor Panel
-     */
     public function register_elementor_categories( $elements_manager ) {
-        $elements_manager->add_category(
-            'shuriken_addons',
-            [
-                'title' => 'Shuriken Addons',
-                'icon'  => 'eicon-code', // You can change this icon
-            ]
-        );
+        $elements_manager->add_category( 'shuriken_addons', [ 'title' => 'Shuriken Addons', 'icon'  => 'eicon-code' ] );
     }
 
     /* ==========================================================================
-       ADMIN DASHBOARD (Router & Views)
+       ADMIN DASHBOARD
        ========================================================================== */
     public function register_admin_menu() {
         add_menu_page( 'Shuriken Tables', 'Shuriken Tables', 'manage_options', 'shuriken-table', array( $this, 'router' ), 'dashicons-editor-table', 50 );
@@ -231,7 +220,7 @@ class Shuriken_Table_Manager {
         $atts = shortcode_atts( array( 'id' => '' ), $atts );
         $tables = get_option( self::OPTION_KEY, array() );
         if ( empty( $atts['id'] ) || ! isset( $tables[ $atts['id'] ] ) ) return '<p>Table ID not found.</p>';
-        return self::generate_table_html( $atts['id'], $tables[ $atts['id'] ], false );
+        return self::generate_table_html( $atts['id'], $tables[ $atts['id'] ], false, 'all' );
     }
 
     public static function fetch_data( $form_id, $limit ) {
@@ -255,86 +244,169 @@ class Shuriken_Table_Manager {
         return array('headers' => $headers, 'rows' => $pivoted);
     }
 
-    // 3. HTML GENERATOR (UPDATED FOR ELEMENTOR)
-    public static function generate_table_html( $table_id, $config, $is_elementor = false ) {
+    // 4. MODULAR HTML GENERATOR
+    // component: 'all', 'table', 'search', 'buttons', 'pagination'
+    // link_id: Custom ID to link separate components
+    public static function generate_table_html( $table_id, $config, $is_elementor = false, $component = 'all', $link_id = '', $search_col = '' ) {
         $data = self::fetch_data( $config['form_id'], $config['limit'] );
-        $unique_id = 'sh_' . $table_id . '_' . uniqid();
+        
+        // If link_id is provided, use it. Otherwise generate one.
+        $unique_id = !empty($link_id) ? $link_id : 'sh_' . $table_id . '_' . uniqid();
         
         ob_start();
         
-        // Only load default CSS if NOT Elementor
+        // Default styles for Shortcode use (non-Elementor)
         if ( ! $is_elementor ) {
             echo '<style>
-            #'.$unique_id.' { width: 100%; overflow-x: auto; font-family: sans-serif; }
-            #'.$unique_id.' table { width: 100%; border-collapse: collapse; }
-            #'.$unique_id.' th, #'.$unique_id.' td { padding: 10px; border: 1px solid #ddd; }
-            #'.$unique_id.' th { background: #f1f1f1; font-weight: bold; }
-            #'.$unique_id.' .sh-controls { display: flex; gap: 10px; margin-bottom: 10px; }
-            #'.$unique_id.' .sh-search-input { padding: 8px; border: 1px solid #ccc; }
-            #'.$unique_id.' .sh-btn { padding: 8px 12px; background: #0073aa; color: #fff; text-decoration: none; border:none; cursor: pointer; }
-            #'.$unique_id.' .sh-pagination { margin-top: 10px; display: flex; gap: 5px; justify-content: center; }
+            .shuriken-container { width: 100%; overflow-x: auto; font-family: sans-serif; }
+            .shuriken-table { width: 100%; border-collapse: collapse; }
+            .shuriken-table th, .shuriken-table td { padding: 10px; border: 1px solid #ddd; }
+            .sh-controls { display: flex; gap: 10px; margin-bottom: 10px; }
+            .sh-search-input { padding: 8px; border: 1px solid #ccc; }
+            .sh-btn { padding: 8px 12px; background: #0073aa; color: #fff; text-decoration: none; border:none; cursor: pointer; }
             </style>';
         }
         
-        echo '<div id="' . esc_attr($unique_id) . '" class="shuriken-container">';
+        echo '<div class="shuriken-container sh-comp-' . esc_attr($component) . '">';
         
-        if ( empty( $data['rows'] ) ) {
-            echo '<p>' . esc_html( $config['no_data_msg'] ) . '</p>';
-        } else {
-            echo '<div class="sh-controls">';
-            if ( !empty($config['search']) ) echo '<input type="text" class="sh-search-input" placeholder="Search..." onkeyup="shFilter(\''.$unique_id.'\', this)">';
-            
-            echo '<div class="sh-buttons-group">';
-            if ( !empty($config['print']) ) echo '<button onclick="window.print()" class="sh-btn sh-btn-print">Print</button> ';
-            if ( !empty($config['export']) ) echo '<a href="' . wp_nonce_url( admin_url('admin-post.php?action=shuriken_export_csv&table_id='.$table_id), 'shuriken_csv' ) . '" class="sh-btn sh-btn-csv">Export CSV</a>';
-            echo '</div>'; // End button group
-            echo '</div>'; // End controls
-
-            echo '<div class="sh-table-wrapper">';
-            echo '<table class="shuriken-table"><thead><tr>';
-            echo '<th>Date</th>';
-            $visible_cols = array();
-            foreach ( $data['headers'] as $key ) {
-                if ( empty($config['columns'][$key]['hidden']) ) {
-                    $visible_cols[] = $key;
-                    $lbl = !empty($config['columns'][$key]['label']) ? $config['columns'][$key]['label'] : $key;
-                    echo '<th>' . esc_html( $lbl ) . '</th>';
-                }
+        // --- COMPONENT: SEARCH ---
+        if ( $component === 'all' || $component === 'search' ) {
+            if ( !empty($config['search']) || $component === 'search' ) {
+                $col_attr = !empty($search_col) ? 'data-col="'.esc_attr($search_col).'"' : '';
+                echo '<input type="text" class="sh-search-input" placeholder="Search..." '.$col_attr.' onkeyup="shurikenGlobalSearch(\''.esc_attr($unique_id).'\', this)">';
             }
-            echo '</tr></thead><tbody>';
-
-            foreach ( $data['rows'] as $row ) {
-                echo '<tr><td>' . esc_html( $row['created_at'] ) . '</td>';
-                foreach ( $visible_cols as $col ) {
-                    echo '<td>' . esc_html( isset($row['fields'][$col]) ? $row['fields'][$col] : '' ) . '</td>';
-                }
-                echo '</tr>';
-            }
-            echo '</tbody></table>';
-            echo '</div>'; // End table wrapper
-            
-            if ( !empty($config['pagination']) ) {
-                 echo '<div class="sh-pagination"><button class="sh-btn sh-pagination-btn sh-prev" onclick="shPage(\''.$unique_id.'\', -1)">Prev</button><button class="sh-btn sh-pagination-btn sh-next" onclick="shPage(\''.$unique_id.'\', 1)">Next</button></div>';
-            }
-            
-            echo '<script>
-            function shFilter(id, el) { 
-                let f=el.value.toUpperCase(); document.querySelectorAll("#"+id+" tbody tr").forEach(r=>{ r.style.display=r.innerText.toUpperCase().includes(f)?"":"none"; });
-            }
-            function shPage(id, d) {
-                let rows = document.querySelectorAll("#"+id+" tbody tr");
-                let per = 10; let total = rows.length; 
-                if(!window[id+"p"]) window[id+"p"] = 1;
-                window[id+"p"] += d; 
-                if(window[id+"p"] < 1) window[id+"p"] = 1;
-                let s = (window[id+"p"]-1)*per; let e = s+per;
-                rows.forEach((r,i) => { r.style.display = (i>=s && i<e) ? "" : "none"; });
-            }
-            document.addEventListener("DOMContentLoaded", function(){ shPage("'.$unique_id.'", 0); });
-            </script>';
         }
+
+        // --- COMPONENT: BUTTONS ---
+        if ( $component === 'all' || $component === 'buttons' ) {
+            if ( !empty($config['print']) || !empty($config['export']) || $component === 'buttons' ) {
+                echo '<div class="sh-buttons-group">';
+                if ( !empty($config['print']) || $component === 'buttons' ) echo '<button onclick="window.print()" class="sh-btn sh-btn-print">Print</button> ';
+                if ( !empty($config['export']) || $component === 'buttons' ) echo '<a href="' . wp_nonce_url( admin_url('admin-post.php?action=shuriken_export_csv&table_id='.$table_id), 'shuriken_csv' ) . '" class="sh-btn sh-btn-csv">Export CSV</a>';
+                echo '</div>';
+            }
+        }
+
+        // --- COMPONENT: TABLE ---
+        if ( $component === 'all' || $component === 'table' ) {
+            if ( empty( $data['rows'] ) ) {
+                echo '<p>' . esc_html( $config['no_data_msg'] ) . '</p>';
+            } else {
+                echo '<div class="sh-table-wrapper">';
+                // ID is applied to the TABLE element for easier targeting
+                echo '<table id="'.esc_attr($unique_id).'" class="shuriken-table"><thead><tr>';
+                echo '<th>Date</th>';
+                $visible_cols = array();
+                foreach ( $data['headers'] as $key ) {
+                    if ( empty($config['columns'][$key]['hidden']) ) {
+                        $visible_cols[] = $key;
+                        $lbl = !empty($config['columns'][$key]['label']) ? $config['columns'][$key]['label'] : $key;
+                        echo '<th>' . esc_html( $lbl ) . '</th>';
+                    }
+                }
+                echo '</tr></thead><tbody>';
+
+                foreach ( $data['rows'] as $row ) {
+                    echo '<tr><td>' . esc_html( $row['created_at'] ) . '</td>';
+                    foreach ( $visible_cols as $col ) {
+                        echo '<td data-key="'.esc_attr($col).'">' . esc_html( isset($row['fields'][$col]) ? $row['fields'][$col] : '' ) . '</td>';
+                    }
+                    echo '</tr>';
+                }
+                echo '</tbody></table>';
+                echo '</div>';
+            }
+        }
+
+        // --- COMPONENT: PAGINATION ---
+        if ( $component === 'all' || $component === 'pagination' ) {
+            if ( !empty($config['pagination']) || $component === 'pagination' ) {
+                 echo '<div class="sh-pagination">';
+                 echo '<button class="sh-btn sh-pagination-btn sh-prev" onclick="shurikenGlobalPage(\''.esc_attr($unique_id).'\', -1)">Prev</button>';
+                 echo '<button class="sh-btn sh-pagination-btn sh-next" onclick="shurikenGlobalPage(\''.esc_attr($unique_id).'\', 1)">Next</button>';
+                 echo '</div>';
+            }
+        }
+        
         echo '</div>';
         return ob_get_clean();
+    }
+    
+    // 5. GLOBAL JS (Supports Linked Components)
+    public function print_global_scripts() {
+        ?>
+        <script>
+        // Global Search
+        function shurikenGlobalSearch(tableId, input) { 
+            let filter = input.value.toUpperCase(); 
+            let targetCol = input.getAttribute('data-col');
+            let table = document.getElementById(tableId);
+            if(!table) return; // Table might be on another widget instance if IDs don't match
+            
+            let rows = table.querySelectorAll("tbody tr");
+            rows.forEach(r => { 
+                let text = "";
+                if(targetCol) {
+                    let cell = r.querySelector('td[data-key="'+targetCol+'"]');
+                    text = cell ? cell.innerText : "";
+                } else {
+                    text = r.innerText;
+                }
+                r.style.display = text.toUpperCase().includes(filter) ? "" : "none"; 
+            });
+            // Reset pagination logic if needed
+            shurikenGlobalPage(tableId, 0);
+        }
+
+        // Global Pagination
+        function shurikenGlobalPage(tableId, d) {
+            let table = document.getElementById(tableId);
+            if(!table) return;
+            
+            let rows = Array.from(table.querySelectorAll("tbody tr")).filter(r => r.style.display !== 'none');
+            // If we are filtering, we might need to respect current visible set. 
+            // Simpler approach: Pagination resets on search.
+            
+            let per = 10; 
+            // We store current page on the table element itself
+            if(!table.dataset.currPage) table.dataset.currPage = 1;
+            
+            let curr = parseInt(table.dataset.currPage);
+            curr += d;
+            if(curr < 1) curr = 1;
+            
+            // Recalculate based on visible rows (simplified)
+            // Real separate pagination is complex, this assumes standard flow
+            let allRows = table.querySelectorAll("tbody tr"); // Use all rows to calc pages? No, use pagination logic.
+            // For simple JS pagination, we just iterate all rows.
+            
+            table.dataset.currPage = curr;
+            let start = (curr-1)*per; 
+            let end = start+per;
+            
+            allRows.forEach((r,i) => { 
+                // Only touch rows that match search (if hidden by search, keep hidden)
+                // This simple logic assumes search clears pagination or vice versa.
+                if(r.style.display !== 'none' || r.dataset.pageHidden) {
+                    if (i >= start && i < end) {
+                        r.style.display = ""; 
+                        delete r.dataset.pageHidden;
+                    } else {
+                        r.style.display = "none";
+                        r.dataset.pageHidden = "true";
+                    }
+                }
+            });
+        }
+        
+        // Init all tables
+        document.addEventListener("DOMContentLoaded", function(){ 
+            document.querySelectorAll('table.shuriken-table').forEach(t => {
+                shurikenGlobalPage(t.id, 0);
+            });
+        });
+        </script>
+        <?php
     }
 }
 new Shuriken_Table_Manager();
