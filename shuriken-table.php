@@ -1,10 +1,17 @@
 <?php
 /**
- * Plugin Name: Shuriken Table Pro
- * Description: Professional Elementor Form Manager. Save tables, manage columns, and display data with advanced privacy controls.
- * Version: 3.6.0
- * Author: Shuriken Dev
- * Text Domain: shuriken-table
+ * Plugin Name:       Shuriken Table Pro
+ * Plugin URI:        https://shurikenit.com/
+ * Description:       Professional Elementor Form Manager. Save tables, manage columns, and display data with advanced privacy controls.
+ * Version:           3.6.0
+ * Requires at least: 5.8
+ * Requires PHP:      7.4
+ * Author:            ShurikenIT
+ * Author URI:        https://shurikenit.com/
+ * License:           GPL v2 or later
+ * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
+ * Text Domain:       shuriken-table
+ * Domain Path:       /languages
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
