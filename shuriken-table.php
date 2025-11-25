@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Shuriken Table Pro
  * Description: Professional Elementor Form Manager. Save tables, manage columns, and display data with advanced privacy controls.
- * Version: 3.5.0
+ * Version: 3.6.0
  * Author: Shuriken Dev
  * Text Domain: shuriken-table
  */
@@ -26,12 +26,10 @@ class Shuriken_Table_Manager {
         add_action( 'wp_footer', array( $this, 'print_global_scripts' ) );
     }
 
-    // 1. REGISTER MULTIPLE WIDGETS
     public function register_elementor_widgets( $widgets_manager ) {
         $widget_file = plugin_dir_path( __FILE__ ) . 'widgets/shuriken-widget.php';
         if ( file_exists( $widget_file ) ) {
             require_once( $widget_file );
-            // We now register separate widgets for a true "Builder" experience
             $widgets_manager->register( new \Shuriken_Widget_Table() );
             $widgets_manager->register( new \Shuriken_Widget_Search() );
             $widgets_manager->register( new \Shuriken_Widget_Pagination() );
@@ -113,6 +111,10 @@ class Shuriken_Table_Manager {
             $keys = $wpdb->get_col( $wpdb->prepare("SELECT DISTINCT v.key FROM {$table_vals} v INNER JOIN {$table_subs} s ON s.id = v.submission_id WHERE s.form_name = %s LIMIT 100", $data['form_id']) );
             $detected_columns = $keys ? $keys : array();
         }
+        
+        // Merge detected with previously saved columns to ensure custom ones persist
+        $saved_keys = array_keys($data['columns']);
+        $all_cols = array_unique( array_merge( $detected_columns, $saved_keys ) );
         ?>
         <div class="wrap">
             <h1><?php echo $id ? 'Edit Table' : 'Create New Table'; ?></h1>
@@ -134,31 +136,60 @@ class Shuriken_Table_Manager {
                         </table></div></div>
 
                         <?php if ( ! empty($data['form_id']) ): ?>
-                        <div class="postbox"><h2 class="hndle"><span>Columns</span></h2><div class="inside"><table class="widefat striped">
-                            <thead><tr><th>Show</th><th>Original Key</th><th>Custom Label</th></tr></thead>
-                            <tbody>
-                                <?php $all_cols = array_unique( array_merge( $detected_columns, array_keys($data['columns']) ) );
-                                foreach ( $all_cols as $col_key ): 
-                                    $saved_col = isset($data['columns'][$col_key]) ? $data['columns'][$col_key] : array();
-                                    $is_checked = isset($saved_col['hidden']) && $saved_col['hidden'] ? '' : 'checked';
-                                    $label = isset($saved_col['label']) ? $saved_col['label'] : ucwords(str_replace(['_','-'], ' ', $col_key));
-                                ?>
-                                <tr>
-                                    <td><input type="checkbox" name="columns[<?php echo esc_attr($col_key); ?>][active]" value="1" <?php echo $is_checked; ?>></td>
-                                    <td><code><?php echo esc_html($col_key); ?></code></td>
-                                    <td><input type="text" name="columns[<?php echo esc_attr($col_key); ?>][label]" value="<?php echo esc_attr($label); ?>" style="width: 100%;"></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table></div></div>
+                        <div class="postbox">
+                            <div class="hndle" style="display:flex; justify-content:space-between; align-items:center; padding:10px;">
+                                <span>Columns & Data</span>
+                                <button type="button" class="button button-secondary" id="add-custom-col-btn">Add Custom Column</button>
+                            </div>
+                            <div class="inside">
+                                <table class="widefat striped" id="sh-columns-table">
+                                    <thead><tr><th>Show</th><th>Field Key</th><th>Custom Label</th><th>Remove</th></tr></thead>
+                                    <tbody id="sh-columns-tbody">
+                                        <?php 
+                                        foreach ( $all_cols as $col_key ): 
+                                            $saved_col = isset($data['columns'][$col_key]) ? $data['columns'][$col_key] : array();
+                                            $is_checked = isset($saved_col['hidden']) && $saved_col['hidden'] ? '' : 'checked';
+                                            $label = isset($saved_col['label']) ? $saved_col['label'] : ucwords(str_replace(['_','-'], ' ', $col_key));
+                                        ?>
+                                        <tr>
+                                            <td><input type="checkbox" name="columns[<?php echo esc_attr($col_key); ?>][active]" value="1" <?php echo $is_checked; ?>></td>
+                                            <td>
+                                                <code><?php echo esc_html($col_key); ?></code>
+                                                <input type="hidden" name="col_keys[]" value="<?php echo esc_attr($col_key); ?>">
+                                            </td>
+                                            <td><input type="text" name="columns[<?php echo esc_attr($col_key); ?>][label]" value="<?php echo esc_attr($label); ?>" style="width: 100%;"></td>
+                                            <td></td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                                <p class="description" style="margin-top:10px;">Note: Check the box to display the column. Use "Add Custom Column" if a field key is not automatically detected.</p>
+                            </div>
+                        </div>
                         <?php endif; ?>
                     </div>
                     <div class="postbox-container"><div class="postbox"><h2 class="hndle"><span>Actions</span></h2><div class="inside">
-                        <button type="submit" class="button button-primary button-large" style="width:100%;">Save</button>
+                        <button type="submit" class="button button-primary button-large" style="width:100%;">Save Table</button>
                     </div></div></div>
                 </div></div>
             </form>
         </div>
+        <script>
+        document.getElementById('add-custom-col-btn').addEventListener('click', function(){
+            let key = prompt("Enter the exact Field Key (e.g., email, first_name):");
+            if(key) {
+                let tbody = document.getElementById('sh-columns-tbody');
+                let row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><input type="checkbox" name="columns[${key}][active]" value="1" checked></td>
+                    <td><code>${key}</code><input type="hidden" name="col_keys[]" value="${key}"></td>
+                    <td><input type="text" name="columns[${key}][label]" value="${key}" style="width: 100%;"></td>
+                    <td><button type="button" class="button button-small" onclick="this.closest('tr').remove()">X</button></td>
+                `;
+                tbody.appendChild(row);
+            }
+        });
+        </script>
         <?php
     }
 
@@ -169,11 +200,13 @@ class Shuriken_Table_Manager {
         $id = ! empty( $_POST['table_id'] ) ? intval( $_POST['table_id'] ) : ( !empty($tables) ? max(array_keys($tables)) + 1 : 1 );
 
         $columns_data = array();
+        // Process dynamic columns from the form
         if ( isset( $_POST['columns'] ) ) {
             foreach ( $_POST['columns'] as $key => $vals ) {
                 $columns_data[$key] = array( 'label' => sanitize_text_field( $vals['label'] ), 'hidden' => ! isset( $vals['active'] ) );
             }
         }
+        // Also capture manually added keys if not in POST['columns'] yet (rare edge case, usually covered above)
 
         $tables[$id] = array(
             'name' => sanitize_text_field( $_POST['name'] ),
@@ -250,11 +283,12 @@ class Shuriken_Table_Manager {
         return array('headers' => $headers, 'rows' => $pivoted);
     }
 
-    // 4. MODULAR HTML GENERATOR (UPDATED FOR ROBUST LINKING)
-    public static function generate_table_html( $table_id, $config, $is_elementor = false, $component = 'all', $link_id = '', $search_col = '' ) {
+    /**
+     * Updated HTML Generator with Modal & Search enhancements
+     * $extras array can contain: 'search_col', 'search_btn', 'search_icon', 'view_modal', 'view_text'
+     */
+    public static function generate_table_html( $table_id, $config, $is_elementor = false, $component = 'all', $link_id = '', $extras = [] ) {
         $data = self::fetch_data( $config['form_id'], $config['limit'] );
-        
-        // Robust ID generation
         $unique_id = !empty($link_id) ? $link_id : 'sh_' . $table_id . '_' . uniqid();
         
         ob_start();
@@ -266,18 +300,31 @@ class Shuriken_Table_Manager {
             .shuriken-table th, .shuriken-table td { padding: 10px; border: 1px solid #ddd; }
             .sh-controls { display: flex; gap: 10px; margin-bottom: 10px; }
             .sh-search-input { padding: 8px; border: 1px solid #ccc; }
-            .sh-btn { padding: 8px 12px; background: #0073aa; color: #fff; text-decoration: none; border:none; cursor: pointer; }
+            .sh-btn { padding: 8px 12px; background: #0073aa; color: #fff; border:none; cursor: pointer; }
+            /* Modal Styles for Shortcode use */
+            .sh-modal { display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,0.5); }
+            .sh-modal-content { background-color:#fefefe; margin:10% auto; padding:20px; border:1px solid #888; width:80%; max-width:600px; position:relative; }
+            .sh-close { position:absolute; right:15px; top:10px; font-size:24px; font-weight:bold; cursor:pointer; }
             </style>';
         }
         
         echo '<div class="shuriken-container sh-comp-' . esc_attr($component) . '">';
         
         // --- COMPONENT: SEARCH ---
-        // Renders just the input. Does NOT need data.
         if ( $component === 'all' || $component === 'search' ) {
+            $search_col = isset($extras['search_col']) ? $extras['search_col'] : '';
             $col_attr = !empty($search_col) ? 'data-col="'.esc_attr($search_col).'"' : '';
-            // Data-target-id tells JS which table to look for
+            $btn_icon = isset($extras['search_icon']) ? $extras['search_icon'] : '';
+            $show_btn = isset($extras['search_btn']) && $extras['search_btn'] === 'yes';
+
+            echo '<div class="sh-search-wrapper" style="display:flex; align-items:center;">';
             echo '<input type="text" class="sh-search-input" placeholder="Search..." data-target-id="'.esc_attr($unique_id).'" '.$col_attr.'>';
+            if( $show_btn ) {
+                 echo '<button class="sh-btn sh-search-btn" data-target-id="'.esc_attr($unique_id).'">';
+                 if($btn_icon) echo '<i class="'.esc_attr($btn_icon).'" aria-hidden="true"></i> ';
+                 echo 'Search</button>';
+            }
+            echo '</div>';
         }
 
         // --- COMPONENT: BUTTONS ---
@@ -288,10 +335,9 @@ class Shuriken_Table_Manager {
             echo '</div>';
         }
 
-        // --- COMPONENT: INFO (NEW) ---
+        // --- COMPONENT: INFO ---
         if ( $component === 'info' ) {
             $count = count($data['rows']);
-            // The span needs the ID so JS can update it
             echo '<div class="sh-info-text" data-target-id="'.esc_attr($unique_id).'">Showing <span class="sh-showing-count">'.$count.'</span> results</div>';
         }
 
@@ -300,8 +346,10 @@ class Shuriken_Table_Manager {
             if ( empty( $data['rows'] ) ) {
                 echo '<p>' . esc_html( $config['no_data_msg'] ) . '</p>';
             } else {
+                $enable_modal = isset($extras['view_modal']) && $extras['view_modal'] === 'yes';
+                $view_text = isset($extras['view_text']) ? $extras['view_text'] : 'View';
+
                 echo '<div class="sh-table-wrapper">';
-                // The Table gets the data-shuriken-id attribute. This is the beacon for other widgets.
                 echo '<table data-shuriken-id="'.esc_attr($unique_id).'" class="shuriken-table"><thead><tr>';
                 echo '<th>Date</th>';
                 $visible_cols = array();
@@ -312,24 +360,42 @@ class Shuriken_Table_Manager {
                         echo '<th>' . esc_html( $lbl ) . '</th>';
                     }
                 }
+                if ($enable_modal) echo '<th>Actions</th>';
                 echo '</tr></thead><tbody>';
 
                 foreach ( $data['rows'] as $row ) {
+                    // Prepare JSON for Modal
+                    $modal_data = [ 'Date' => $row['created_at'] ];
+                    foreach ($visible_cols as $c) $modal_data[ !empty($config['columns'][$c]['label']) ? $config['columns'][$c]['label'] : $c ] = isset($row['fields'][$c]) ? $row['fields'][$c] : '';
+                    $json_safe = htmlspecialchars(json_encode($modal_data), ENT_QUOTES, 'UTF-8');
+
                     echo '<tr><td>' . esc_html( $row['created_at'] ) . '</td>';
                     foreach ( $visible_cols as $col ) {
                         echo '<td data-key="'.esc_attr($col).'">' . esc_html( isset($row['fields'][$col]) ? $row['fields'][$col] : '' ) . '</td>';
+                    }
+                    if ($enable_modal) {
+                         echo '<td><button class="sh-btn sh-view-btn" data-details="'.$json_safe.'">'.esc_html($view_text).'</button></td>';
                     }
                     echo '</tr>';
                 }
                 echo '</tbody></table>';
                 echo '</div>';
+                
+                // Modal Markup (Hidden)
+                if ($enable_modal) {
+                    echo '<div class="sh-modal" id="modal-'.esc_attr($unique_id).'" aria-hidden="true" role="dialog">';
+                    echo '<div class="sh-modal-content">';
+                    echo '<span class="sh-close" aria-label="Close">&times;</span>';
+                    echo '<h3 class="sh-modal-title">Submission Details</h3>';
+                    echo '<div class="sh-modal-body"></div>';
+                    echo '</div></div>';
+                }
             }
         }
 
         // --- COMPONENT: PAGINATION ---
         if ( $component === 'all' || $component === 'pagination' ) {
              echo '<div class="sh-pagination">';
-             // Buttons target the ID
              echo '<button class="sh-btn sh-pagination-btn sh-prev" data-target-id="'.esc_attr($unique_id).'" data-dir="-1">Prev</button>';
              echo '<button class="sh-btn sh-pagination-btn sh-next" data-target-id="'.esc_attr($unique_id).'" data-dir="1">Next</button>';
              echo '</div>';
@@ -339,48 +405,55 @@ class Shuriken_Table_Manager {
         return ob_get_clean();
     }
     
-    // 5. GLOBAL JS (Fixed Search & Connection)
+    // 5. GLOBAL JS (Updated for Modal & Search Button)
     public function print_global_scripts() {
         ?>
         <script>
         document.addEventListener("DOMContentLoaded", function(){ 
+            
+            // --- Search Functionality ---
+            function performSearch(targetId, filter, targetCol) {
+                let table = document.querySelector('table[data-shuriken-id="'+targetId+'"]');
+                if(!table) return;
+                let rows = table.querySelectorAll("tbody tr");
+                let visibleCount = 0;
+                rows.forEach(r => { 
+                    let text = "";
+                    if(targetCol) {
+                        let cell = r.querySelector('td[data-key="'+targetCol+'"]');
+                        text = cell ? cell.innerText : "";
+                    } else {
+                        text = r.innerText;
+                    }
+                    let match = text.toUpperCase().includes(filter);
+                    r.style.display = match ? "" : "none"; 
+                    if(match) visibleCount++;
+                });
+                shurikenUpdatePagination(table, 0);
+                shurikenUpdateInfo(targetId, visibleCount);
+            }
 
-            // 1. Search Logic (Event Delegation)
+            // Real-time input
             document.body.addEventListener('input', function(e) {
                 if(e.target.classList.contains('sh-search-input')) {
                     let input = e.target;
-                    let targetId = input.getAttribute('data-target-id');
-                    let filter = input.value.trim().toUpperCase();
-                    let targetCol = input.getAttribute('data-col');
-                    
-                    // Find the table by the data attribute, NOT getElementById (robust!)
-                    let table = document.querySelector('table[data-shuriken-id="'+targetId+'"]');
-                    if(!table) return;
-
-                    let rows = table.querySelectorAll("tbody tr");
-                    let visibleCount = 0;
-                    
-                    rows.forEach(r => { 
-                        let text = "";
-                        if(targetCol) {
-                            let cell = r.querySelector('td[data-key="'+targetCol+'"]');
-                            text = cell ? cell.innerText : "";
-                        } else {
-                            text = r.innerText;
-                        }
-                        
-                        let match = text.toUpperCase().includes(filter);
-                        r.style.display = match ? "" : "none"; 
-                        if(match) visibleCount++;
-                    });
-                    
-                    // Reset pagination for that table
-                    shurikenUpdatePagination(table, 0);
-                    shurikenUpdateInfo(targetId, visibleCount);
+                    // If a search button exists for this input's group, don't auto-search? 
+                    // Usually users expect enter or typing. Let's keep typing unless user explicitly clicks button.
+                    performSearch(input.getAttribute('data-target-id'), input.value.trim().toUpperCase(), input.getAttribute('data-col'));
                 }
             });
 
-            // 2. Pagination Click Logic
+            // Search Button Click
+            document.body.addEventListener('click', function(e) {
+                if(e.target.classList.contains('sh-search-btn') || e.target.closest('.sh-search-btn')) {
+                    let btn = e.target.classList.contains('sh-search-btn') ? e.target : e.target.closest('.sh-search-btn');
+                    let targetId = btn.getAttribute('data-target-id');
+                    let input = document.querySelector('.sh-search-input[data-target-id="'+targetId+'"]');
+                    if(input) performSearch(targetId, input.value.trim().toUpperCase(), input.getAttribute('data-col'));
+                }
+            });
+
+            // --- Pagination ---
             document.body.addEventListener('click', function(e) {
                 if(e.target.classList.contains('sh-pagination-btn')) {
                     let btn = e.target;
@@ -390,63 +463,64 @@ class Shuriken_Table_Manager {
                     if(table) shurikenUpdatePagination(table, dir);
                 }
             });
-            
-            // Init Pagination on Load
-            document.querySelectorAll('table[data-shuriken-id]').forEach(t => {
-                shurikenUpdatePagination(t, 0);
+            document.querySelectorAll('table[data-shuriken-id]').forEach(t => { shurikenUpdatePagination(t, 0); });
+
+            // --- Modal Functionality ---
+            document.body.addEventListener('click', function(e) {
+                if(e.target.classList.contains('sh-view-btn')) {
+                    e.preventDefault();
+                    let btn = e.target;
+                    let data = JSON.parse(btn.getAttribute('data-details'));
+                    let table = btn.closest('table');
+                    let targetId = table.getAttribute('data-shuriken-id');
+                    let modal = document.getElementById('modal-' + targetId);
+                    
+                    if(modal) {
+                        let body = modal.querySelector('.sh-modal-body');
+                        let html = '<table class="sh-details-table" style="width:100%; border-collapse:collapse;">';
+                        for (const [key, value] of Object.entries(data)) {
+                            html += `<tr><th style="text-align:left; padding:8px; border-bottom:1px solid #eee;">${key}</th><td style="padding:8px; border-bottom:1px solid #eee;">${value}</td></tr>`;
+                        }
+                        html += '</table>';
+                        body.innerHTML = html;
+                        modal.style.display = "block";
+                        modal.setAttribute('aria-hidden', 'false');
+                    }
+                }
+                
+                // Close Modal
+                if(e.target.classList.contains('sh-close') || e.target.classList.contains('sh-modal')) {
+                    let modal = e.target.closest('.sh-modal');
+                    if(!modal) modal = e.target; // clicked overlay
+                    modal.style.display = "none";
+                    modal.setAttribute('aria-hidden', 'true');
+                }
             });
         });
 
         function shurikenUpdatePagination(table, dir) {
             let rows = Array.from(table.querySelectorAll("tbody tr")).filter(r => r.style.display !== 'none' || r.dataset.pageHidden);
-            
-            // Filter out rows hidden by SEARCH (they don't have pageHidden, they have display:none directly)
-            let visibleRows = rows.filter(r => !r.style.display || r.style.display !== 'none' || r.dataset.pageHidden === 'true');
-            // Actually, we just want rows that match the search query.
-            // Simplified: Iterate ALL rows. If row matches search (based on logic or if we assume search resets pagination), include it.
-            // For robustness: We assume search clears pagination first.
-            
+            let validRows = [];
+            table.querySelectorAll("tbody tr").forEach(r => {
+                if(r.dataset.pageHidden) { r.style.display = ''; delete r.dataset.pageHidden; }
+                if(r.style.display !== 'none') { validRows.push(r); }
+            });
+
             if(!table.dataset.currPage) table.dataset.currPage = 1;
             let curr = parseInt(table.dataset.currPage);
-            
-            // Reset page if direction is 0 (Search trigger)
-            if(dir === 0) curr = 1; 
-            else curr += dir;
-            
+            if(dir === 0) curr = 1; else curr += dir;
             if(curr < 1) curr = 1;
             
             let per = 10; 
             let start = (curr-1)*per; 
             let end = start+per;
-            
-            // Apply logic to currently "search-visible" rows
-            let count = 0;
-            // First pass: identify valid rows (not filtered by search)
-            let validRows = [];
-            table.querySelectorAll("tbody tr").forEach(r => {
-                // If it was hidden by pagination, unhide it to check search
-                if(r.dataset.pageHidden) {
-                     r.style.display = ''; 
-                     delete r.dataset.pageHidden;
-                }
-                // Now check if it's visible (search didn't hide it)
-                if(r.style.display !== 'none') {
-                    validRows.push(r);
-                }
-            });
-            
             let max = Math.ceil(validRows.length / per);
             if(curr > max && max > 0) curr = max;
             table.dataset.currPage = curr;
             
-            // Second pass: Apply pagination
             validRows.forEach((r, i) => {
-                if (i >= start && i < end) {
-                    r.style.display = ""; 
-                } else {
-                    r.style.display = "none";
-                    r.dataset.pageHidden = "true";
-                }
+                if (i >= start && i < end) { r.style.display = ""; } 
+                else { r.style.display = "none"; r.dataset.pageHidden = "true"; }
             });
         }
 
